@@ -1,4 +1,6 @@
 import { defineConfig } from 'vitepress'
+import * as fs from 'fs'
+import * as path from 'path'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
@@ -7,6 +9,67 @@ export default defineConfig({
 
   // Ignore dead links for placeholder pages that will be created in later phases
   ignoreDeadLinks: true,
+
+  // Generate sitemap after build
+  buildEnd: ({ outDir }) => {
+    const hostname = 'https://docs.qualflare.com'
+    const sitemapPath = path.resolve(outDir, 'sitemap.xml')
+
+    // Collect all HTML files from the output directory
+    const urls: string[] = []
+
+    function collectHtmlFiles(dir: string, baseDir: string) {
+      const files = fs.readdirSync(dir)
+
+      for (const file of files) {
+        const fullPath = path.join(dir, file)
+        const stat = fs.statSync(fullPath)
+
+        if (stat.isDirectory()) {
+          collectHtmlFiles(fullPath, baseDir)
+        } else if (file.endsWith('.html')) {
+          // Get the relative path from the outDir
+          const relativePath = path.relative(baseDir, fullPath)
+          // Remove .html extension and convert to URL path
+          let urlPath = relativePath.replace(/\.html$/, '')
+          // If it's index.html, just use the directory path
+          if (urlPath.endsWith('index')) {
+            urlPath = urlPath.replace(/\/index$/, '') || '/'
+          } else {
+            urlPath = urlPath.replace(/index$/, '')
+          }
+          urls.push(urlPath)
+        }
+      }
+    }
+
+    collectHtmlFiles(outDir, outDir)
+
+    // Generate sitemap XML
+    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(url => `  <url>
+    <loc>${hostname}/${url === '' ? '' : url + '/'}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`).join('\n')}
+</urlset>`
+
+    fs.writeFileSync(sitemapPath, sitemap, 'utf-8')
+    console.log(`\n✓ Generated sitemap.xml with ${urls.length} URLs`)
+
+    // Also generate robots.txt
+    const robotsPath = path.resolve(outDir, 'robots.txt')
+    const robots = `# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: ${hostname}/sitemap.xml
+`
+    fs.writeFileSync(robotsPath, robots, 'utf-8')
+    console.log(`✓ Generated robots.txt`)
+  },
 
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
